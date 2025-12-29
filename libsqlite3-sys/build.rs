@@ -42,50 +42,8 @@ fn copy_bindings<T: AsRef<Path>>(dir: &str, bindgen_name: &str, out_path: T) {
 fn main() {
     let out_dir = env::var("OUT_DIR").unwrap();
     let out_path = Path::new(&out_dir).join("bindgen.rs");
-    if cfg!(feature = "in_gecko") {
-        // When inside mozilla-central, we are included into the build with
-        // sqlite3.o directly, so we don't want to provide any linker arguments.
-        copy_bindings("sqlite3", "bindgen_bundled_version", out_path);
-        return;
-    }
 
-    println!("cargo:rerun-if-env-changed=LIBSQLITE3_SYS_USE_PKG_CONFIG");
-    if env::var_os("LIBSQLITE3_SYS_USE_PKG_CONFIG").is_some_and(|s| s != "0")
-        || cfg!(feature = "loadable_extension")
-    {
-        build_linked::main(&out_dir, &out_path);
-    } else if cfg!(all(
-        feature = "sqlcipher",
-        not(feature = "bundled-sqlcipher")
-    )) {
-        if cfg!(feature = "bundled") || (win_target() && cfg!(feature = "bundled-windows")) {
-            println!(
-                "cargo:warning=For backwards compatibility, feature 'sqlcipher' overrides
-                features 'bundled' and 'bundled-windows'. If you want a bundled build of
-                SQLCipher (available for the moment only on Unix), use feature 'bundled-sqlcipher'
-                or 'bundled-sqlcipher-vendored-openssl' to also bundle OpenSSL crypto."
-            );
-        }
-        build_linked::main(&out_dir, &out_path);
-    } else if cfg!(feature = "bundled")
-        || (win_target() && cfg!(feature = "bundled-windows"))
-        || cfg!(feature = "bundled-sqlcipher")
-    {
-        #[cfg(any(
-            feature = "bundled",
-            feature = "bundled-windows",
-            feature = "bundled-sqlcipher"
-        ))]
-        build_bundled::main(&out_dir, &out_path);
-        #[cfg(not(any(
-            feature = "bundled",
-            feature = "bundled-windows",
-            feature = "bundled-sqlcipher"
-        )))]
-        panic!("The runtime test should not run this branch, which has not compiled any logic.")
-    } else {
-        build_linked::main(&out_dir, &out_path);
-    }
+    build_linked::main(&out_dir, &out_path);
 }
 
 #[cfg(any(
@@ -111,20 +69,10 @@ mod build_bundled {
 
         let lib_name = super::lib_name();
 
-        // This is just a sanity check, the top level `main` should ensure this.
-        assert!(!(cfg!(feature = "bundled-windows") && !cfg!(feature = "bundled") && !win_target()),
-            "This module should not be used: we're not on Windows and the bundled feature has not been enabled");
-
-        #[cfg(feature = "buildtime_bindgen")]
-        {
-            use super::{bindings, HeaderLocation};
-            let header = HeaderLocation::FromPath(lib_name.to_owned());
-            bindings::write_to_out_dir(header, out_path);
-        }
-        #[cfg(not(feature = "buildtime_bindgen"))]
-        {
-            super::copy_bindings(lib_name, "bindgen_bundled_version", out_path);
-        }
+        use super::{bindings, HeaderLocation};
+        let header = HeaderLocation::FromPath(lib_name.to_owned());
+        bindings::write_to_out_dir(header, out_path);
+   
         println!("cargo:include={}/{lib_name}", env!("CARGO_MANIFEST_DIR"));
         println!("cargo:rerun-if-changed={lib_name}/sqlite3.c");
         println!("cargo:rerun-if-changed=sqlite3/wasm32-wasi-vfs.c");
@@ -152,181 +100,14 @@ mod build_bundled {
             .flag("-DSQLITE_ENABLE_API_ARMOR")
             .flag("-DSQLITE_ENABLE_COLUMN_METADATA")
             .flag("-DSQLITE_ENABLE_DBSTAT_VTAB")
-            .flag("-DSQLITE_ENABLE_FTS3")
-            .flag("-DSQLITE_ENABLE_FTS3_PARENTHESIS")
             .flag("-DSQLITE_ENABLE_FTS5")
-            .flag("-DSQLITE_ENABLE_JSON1")
             .flag("-DSQLITE_ENABLE_LOAD_EXTENSION=1")
             .flag("-DSQLITE_ENABLE_MEMORY_MANAGEMENT")
             .flag("-DSQLITE_ENABLE_RTREE")
-            .flag("-DSQLITE_ENABLE_STAT4")
-            .flag("-DSQLITE_SOUNDEX")
             .flag("-DSQLITE_THREADSAFE=1")
-            .flag("-DSQLITE_USE_URI")
-            .flag("-DHAVE_USLEEP=1")
-            .flag("-DHAVE_ISNAN")
-            .flag("-D_POSIX_THREAD_SAFE_FUNCTIONS") // cross compile with MinGW
+            .flag("-DSQLITE_OMIT_WAL=1")
             .warnings(false);
 
-        if cfg!(feature = "bundled-sqlcipher") {
-            cfg.flag("-DSQLITE_HAS_CODEC")
-                .flag("-DSQLITE_TEMP_STORE=2")
-                .flag("-DSQLITE_EXTRA_INIT=sqlcipher_extra_init")
-                .flag("-DSQLITE_EXTRA_SHUTDOWN=sqlcipher_extra_shutdown")
-                .flag("-DHAVE_STDINT_H=1");
-
-            let target = env::var("TARGET").unwrap();
-            let host = env::var("HOST").unwrap();
-
-            let is_windows = host.contains("windows") && target.contains("windows");
-            let is_apple = host.contains("apple") && target.contains("apple");
-
-            let lib_dir = env("OPENSSL_LIB_DIR").map(PathBuf::from);
-            let inc_dir = env("OPENSSL_INCLUDE_DIR").map(PathBuf::from);
-            let mut use_openssl = false;
-
-            let (lib_dir, inc_dir) = match (lib_dir, inc_dir) {
-                (Some(lib_dir), Some(inc_dir)) => {
-                    use_openssl = true;
-                    (vec![lib_dir], inc_dir)
-                }
-                (lib_dir, inc_dir) => match find_openssl_dir(&host, &target) {
-                    None => {
-                        if is_windows && !cfg!(feature = "bundled-sqlcipher-vendored-openssl") {
-                            panic!("Missing environment variable OPENSSL_DIR or OPENSSL_DIR is not set")
-                        } else {
-                            (vec![PathBuf::new()], PathBuf::new())
-                        }
-                    }
-                    Some(openssl_dir) => {
-                        let lib_dir = lib_dir.map(|d| vec![d]).unwrap_or_else(|| {
-                            let mut lib_dirs = vec![];
-                            // OpenSSL 3.0 now puts its libraries in lib64/ by default,
-                            // check for both it and lib/.
-                            if openssl_dir.join("lib64").exists() {
-                                lib_dirs.push(openssl_dir.join("lib64"));
-                            }
-                            if openssl_dir.join("lib").exists() {
-                                lib_dirs.push(openssl_dir.join("lib"));
-                            }
-                            lib_dirs
-                        });
-                        let inc_dir = inc_dir.unwrap_or_else(|| openssl_dir.join("include"));
-
-                        if !lib_dir.iter().all(|p| p.exists()) {
-                            panic!("OpenSSL library directory does not exist: {lib_dir:?}");
-                        }
-
-                        if !Path::new(&inc_dir).exists() {
-                            panic!(
-                                "OpenSSL include directory does not exist: {}",
-                                inc_dir.to_string_lossy()
-                            );
-                        }
-
-                        use_openssl = true;
-                        (lib_dir, inc_dir)
-                    }
-                },
-            };
-
-            if cfg!(feature = "bundled-sqlcipher-vendored-openssl") {
-                cfg.include(env::var("DEP_OPENSSL_INCLUDE").unwrap());
-                // cargo will resolve downstream to the static lib in
-                // openssl-sys
-            } else if use_openssl {
-                cfg.include(inc_dir.to_string_lossy().as_ref());
-                let lib_name = if is_windows { "libcrypto" } else { "crypto" };
-                println!("cargo:rustc-link-lib=dylib={lib_name}");
-                for lib_dir_item in &lib_dir {
-                    println!("cargo:rustc-link-search={}", lib_dir_item.to_string_lossy());
-                }
-            } else if is_apple {
-                cfg.flag("-DSQLCIPHER_CRYPTO_CC");
-                println!("cargo:rustc-link-lib=framework=Security");
-                println!("cargo:rustc-link-lib=framework=CoreFoundation");
-            } else {
-                // branch not taken on Windows, just `crypto` is fine.
-                println!("cargo:rustc-link-lib=dylib=crypto");
-            }
-        }
-
-        // on android sqlite can't figure out where to put the temp files.
-        // the bundled sqlite on android also uses `SQLITE_TEMP_STORE=3`.
-        // https://android.googlesource.com/platform/external/sqlite/+/2c8c9ae3b7e6f340a19a0001c2a889a211c9d8b2/dist/Android.mk
-        if super::android_target() {
-            cfg.flag("-DSQLITE_TEMP_STORE=3");
-        }
-
-        if cfg!(feature = "with-asan") {
-            cfg.flag("-fsanitize=address");
-        }
-
-        // If explicitly requested: enable static linking against the Microsoft Visual
-        // C++ Runtime to avoid dependencies on vcruntime140.dll and similar libraries.
-        if env::var("CARGO_CFG_TARGET_FEATURE")
-            .is_ok_and(|v| v.split(',').any(|tf| tf == "crt-static"))
-            && is_compiler("msvc")
-        {
-            cfg.static_crt(true);
-        }
-
-        if !win_target() {
-            cfg.flag("-DHAVE_LOCALTIME_R");
-        }
-        if env::var("TARGET").is_ok_and(|v| v.starts_with("wasm32-wasi")) {
-            cfg.flag("-USQLITE_THREADSAFE")
-                .flag("-DSQLITE_THREADSAFE=0")
-                // https://github.com/rust-lang/rust/issues/74393
-                .flag("-DLONGDOUBLE_TYPE=double")
-                .flag("-D_WASI_EMULATED_MMAN")
-                .flag("-D_WASI_EMULATED_GETPID")
-                .flag("-D_WASI_EMULATED_SIGNAL")
-                .flag("-D_WASI_EMULATED_PROCESS_CLOCKS");
-
-            if cfg!(feature = "wasm32-wasi-vfs") {
-                cfg.file("sqlite3/wasm32-wasi-vfs.c");
-            }
-        }
-        if cfg!(feature = "unlock_notify") {
-            cfg.flag("-DSQLITE_ENABLE_UNLOCK_NOTIFY");
-        }
-        if cfg!(feature = "column_metadata") {
-            cfg.flag("-DSQLITE_ENABLE_COLUMN_METADATA");
-        }
-        if cfg!(feature = "preupdate_hook") {
-            cfg.flag("-DSQLITE_ENABLE_PREUPDATE_HOOK");
-        }
-        if cfg!(feature = "session") {
-            cfg.flag("-DSQLITE_ENABLE_SESSION");
-        }
-
-        if let Ok(limit) = env::var("SQLITE_MAX_VARIABLE_NUMBER") {
-            cfg.flag(format!("-DSQLITE_MAX_VARIABLE_NUMBER={limit}"));
-        }
-        println!("cargo:rerun-if-env-changed=SQLITE_MAX_VARIABLE_NUMBER");
-
-        if let Ok(limit) = env::var("SQLITE_MAX_EXPR_DEPTH") {
-            cfg.flag(format!("-DSQLITE_MAX_EXPR_DEPTH={limit}"));
-        }
-        println!("cargo:rerun-if-env-changed=SQLITE_MAX_EXPR_DEPTH");
-
-        if let Ok(limit) = env::var("SQLITE_MAX_COLUMN") {
-            cfg.flag(format!("-DSQLITE_MAX_COLUMN={limit}"));
-        }
-        println!("cargo:rerun-if-env-changed=SQLITE_MAX_COLUMN");
-
-        if let Ok(extras) = env::var("LIBSQLITE3_FLAGS") {
-            for extra in extras.split_whitespace() {
-                if extra.starts_with("-D") || extra.starts_with("-U") {
-                    cfg.flag(extra);
-                } else if extra.starts_with("SQLITE_") {
-                    cfg.flag(format!("-D{extra}"));
-                } else {
-                    panic!("Don't understand {extra} in LIBSQLITE3_FLAGS");
-                }
-            }
-        }
         println!("cargo:rerun-if-env-changed=LIBSQLITE3_FLAGS");
 
         cfg.compile(lib_name);
