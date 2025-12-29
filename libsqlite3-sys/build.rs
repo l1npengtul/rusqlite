@@ -88,12 +88,11 @@ mod build_bundled {
 
         cfg.file(format!("{lib_name}/sqlite3.c"))
             .flag("-DSQLITE_CORE")
-            .flag("-DSQLITE_DEFAULT_FOREIGN_KEYS=1")
-            .flag("-DSQLITE_ENABLE_COLUMN_METADATA")
-            .flag("-DSQLITE_ENABLE_DBSTAT_VTAB")
-            .flag("-DSQLITE_ENABLE_FTS5")
-            .flag("-DSQLITE_ENABLE_RTREE")
-            .flag("-DSQLITE_OMIT_WAL=1")
+            .flag("-DSQLITE_OMIT_WAL")
+            .flag("-DSQLITE_OMIT_DISKIO")
+            .flag("-DSQLITE_OMIT_LOAD_EXTENSION")
+            .flag("-DSQLITE_OMIT_AUTOINIT")
+            .flag("-DSQLITE_OMIT_DEPRECATED")
             .warnings(false);
 
         println!("cargo:rerun-if-env-changed=LIBSQLITE3_FLAGS");
