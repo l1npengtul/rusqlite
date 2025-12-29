@@ -102,6 +102,13 @@ mod build_bundled {
 
     #[expect(clippy::assertions_on_constants)] // https://github.com/rust-lang/rust-clippy/issues/16242
     pub fn main(out_dir: &str, out_path: &Path) {
+        let devkitpro = env::var("DEVKITPRO").unwrap();
+        let devkitarm = env::var("DEVKITARM").unwrap();
+        println!("cargo:rerun-if-changed=build.rs");
+        println!("cargo:rerun-if-env-changed=DEVKITPRO");
+        println!("cargo:rustc-link-search=native={devkitpro}/libctru/lib");
+        println!("cargo:rerun-if-changed={devkitpro}/libctru");
+
         let lib_name = super::lib_name();
 
         // This is just a sanity check, the top level `main` should ensure this.
@@ -122,6 +129,23 @@ mod build_bundled {
         println!("cargo:rerun-if-changed={lib_name}/sqlite3.c");
         println!("cargo:rerun-if-changed=sqlite3/wasm32-wasi-vfs.c");
         let mut cfg = cc::Build::new();
+
+        let bin_dir = Path::new(devkitarm.as_str()).join("bin");
+        let cc = bin_dir.join("arm-none-eabi-gcc");
+        let ar = bin_dir.join("arm-none-eabi-ar");
+
+        cfg.compiler(cc)
+            .archiver(ar)
+            .define("ARM11", None)
+            .define("__3DS__", None)
+            .flag("-march=armv6k")
+            .flag("-mtune=mpcore")
+            .flag("-mfloat-abi=hard")
+            .flag("-mfpu=vfp")
+            .flag("-mtp=soft")
+            .flag("-Wno-deprecated-declarations")
+            .host("arm-none-eabi");
+
         cfg.file(format!("{lib_name}/sqlite3.c"))
             .flag("-DSQLITE_CORE")
             .flag("-DSQLITE_DEFAULT_FOREIGN_KEYS=1")
