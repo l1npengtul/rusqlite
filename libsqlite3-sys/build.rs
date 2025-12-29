@@ -43,20 +43,12 @@ fn main() {
     let out_dir = env::var("OUT_DIR").unwrap();
     let out_path = Path::new(&out_dir).join("bindgen.rs");
 
-    build_linked::main(&out_dir, &out_path);
+    build_bundled::main(&out_dir, &out_path);
 }
 
-#[cfg(any(
-    feature = "bundled",
-    feature = "bundled-windows",
-    feature = "bundled-sqlcipher"
-))]
 mod build_bundled {
     use std::env;
-    use std::ffi::OsString;
-    use std::path::{Path, PathBuf};
-
-    use super::{is_compiler, win_target};
+    use std::path::Path;
 
     #[expect(clippy::assertions_on_constants)] // https://github.com/rust-lang/rust-clippy/issues/16242
     pub fn main(out_dir: &str, out_path: &Path) {
