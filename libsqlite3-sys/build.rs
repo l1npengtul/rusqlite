@@ -93,6 +93,7 @@ mod build_bundled {
             .flag("-DSQLITE_OMIT_LOAD_EXTENSION")
             .flag("-DSQLITE_OMIT_AUTOINIT")
             .flag("-DSQLITE_OMIT_DEPRECATED")
+            .flag("-DSQLITE_OS_OTHER")
             .warnings(false);
 
         println!("cargo:rerun-if-env-changed=LIBSQLITE3_FLAGS");
