@@ -91,6 +91,17 @@ mod build_bundled {
             .flag("-DSQLITE_OMIT_LOAD_EXTENSION")
             .flag("-DSQLITE_OMIT_DEPRECATED")
             .flag("-DSQLITE_OS_OTHER")
+            .flag("-DSQLITE_DEFAULT_FOREIGN_KEYS=1")
+            .flag("-DSQLITE_ENABLE_API_ARMOR")
+            .flag("-DSQLITE_ENABLE_COLUMN_METADATA")
+            .flag("-DSQLITE_ENABLE_DBSTAT_VTAB")
+            .flag("-DSQLITE_ENABLE_FTS5")
+            .flag("-DSQLITE_ENABLE_JSON1")
+            .flag("-DSQLITE_ENABLE_MEMORY_MANAGEMENT")
+            .flag("-DSQLITE_ENABLE_RTREE")
+            .flag("-DSQLITE_ENABLE_STAT4")
+            .flag("-DSQLITE_THREADSAFE=1")
+            .flag("-DSQLITE_USE_URI")
             .warnings(false);
 
         println!("cargo:rerun-if-env-changed=LIBSQLITE3_FLAGS");
