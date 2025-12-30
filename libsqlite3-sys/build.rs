@@ -88,10 +88,7 @@ mod build_bundled {
 
         cfg.file(format!("{lib_name}/sqlite3.c"))
             .flag("-DSQLITE_CORE")
-            .flag("-DSQLITE_OMIT_WAL")
-            .flag("-DSQLITE_OMIT_DISKIO")
             .flag("-DSQLITE_OMIT_LOAD_EXTENSION")
-            .flag("-DSQLITE_OMIT_AUTOINIT")
             .flag("-DSQLITE_OMIT_DEPRECATED")
             .flag("-DSQLITE_OS_OTHER")
             .warnings(false);
