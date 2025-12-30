@@ -4,41 +4,6 @@ use std::path::Path;
 #[cfg(all(feature = "loadable_extension", feature = "preupdate_hook"))]
 compile_error!("feature \"loadable_extension\" and feature \"preupdate_hook\" cannot be enabled at the same time");
 
-/// Tells whether we're building for Windows. This is more suitable than a plain
-/// `cfg!(windows)`, since the latter does not properly handle cross-compilation
-///
-/// Note that there is no way to know at compile-time which system we'll be
-/// targeting, and this test must be made at run-time (of the build script) See
-/// <https://doc.rust-lang.org/cargo/reference/environment-variables.html#environment-variables-cargo-sets-for-build-scripts>
-fn win_target() -> bool {
-    env::var("CARGO_CFG_WINDOWS").is_ok()
-}
-
-/// Tells whether we're building for Android.
-/// See [`win_target`]
-#[cfg(any(feature = "bundled", feature = "bundled-windows"))]
-fn android_target() -> bool {
-    env::var("CARGO_CFG_TARGET_OS").is_ok_and(|v| v == "android")
-}
-
-/// Tells whether a given compiler will be used `compiler_name` is compared to
-/// the content of `CARGO_CFG_TARGET_ENV` (and is always lowercase)
-///
-/// See [`win_target`]
-fn is_compiler(compiler_name: &str) -> bool {
-    env::var("CARGO_CFG_TARGET_ENV").is_ok_and(|v| v == compiler_name)
-}
-
-/// Copy bindgen file from `dir` to `out_path`.
-fn copy_bindings<T: AsRef<Path>>(dir: &str, bindgen_name: &str, out_path: T) {
-    let from = if cfg!(feature = "loadable_extension") {
-        format!("{dir}/{bindgen_name}_ext.rs")
-    } else {
-        format!("{dir}/{bindgen_name}.rs")
-    };
-    std::fs::copy(from, out_path).expect("Could not copy bindings to output directory");
-}
-
 fn main() {
     let out_dir = env::var("OUT_DIR").unwrap();
     let out_path = Path::new(&out_dir).join("bindgen.rs");
@@ -91,14 +56,17 @@ mod build_bundled {
             .flag("-DSQLITE_OMIT_LOAD_EXTENSION")
             .flag("-DSQLITE_OMIT_DEPRECATED")
             .flag("-DSQLITE_OS_OTHER")
+            .flag("-DSQLITE_DQS=0")
+            .flag("-DSQLITE_OMIT_UTF16")
+            .flag("-DSQLITE_OMIT_TCL_VARIABLE")
+            .flag("-DSQLITE_OMIT_SHARED_CACHE")
+            
             .flag("-DSQLITE_DEFAULT_FOREIGN_KEYS=1")
             .flag("-DSQLITE_ENABLE_API_ARMOR")
             .flag("-DSQLITE_ENABLE_COLUMN_METADATA")
             .flag("-DSQLITE_ENABLE_DBSTAT_VTAB")
             .flag("-DSQLITE_ENABLE_FTS5")
-            .flag("-DSQLITE_ENABLE_JSON1")
             .flag("-DSQLITE_ENABLE_MEMORY_MANAGEMENT")
-            .flag("-DSQLITE_ENABLE_RTREE")
             .flag("-DSQLITE_ENABLE_STAT4")
             .flag("-DSQLITE_THREADSAFE=1")
             .flag("-DSQLITE_USE_URI")
